@@ -209,69 +209,72 @@ class AccessController extends Controller
         });
     }
 
-    public function checkAvailableAll(string $rfid)
-    {
-        $ips = [
-            '192.168.20.102',
-            '192.168.20.104',
-            '192.168.20.106',
-            '192.168.20.108',
-            '192.168.20.118',
-            '192.168.20.110',
-            '192.168.20.112',
-            '192.168.20.114',
-            '192.168.20.116',
-        ];
+    public function checkAvailableAll(Request $request, string $rfid)
+{
+    $ips = [
+        '192.168.20.102',
+        '192.168.20.104',
+        '192.168.20.106',
+        '192.168.20.108',
+        '192.168.20.118',
+        '192.168.20.110',
+        '192.168.20.112',
+        '192.168.20.114',
+        '192.168.20.116',
+    ];
 
-        $cacheKey = "hik:available:all:$rfid";
+    $cacheKey = "hik:available:all:$rfid";
 
-        // ✅ PRIORITAS CACHE
-        if (Cache::has($cacheKey)) {
-            return response()->json([
-                'from_cache' => true,
-                'data' => Cache::get($cacheKey)
-            ]);
-        }
-
-        $employeeNo = '0' . hexdec('11' . $rfid);
-        $results = [];
-
-        foreach ($ips as $ip) {
-            try {
-                $res = $this->hikvisionRequest(
-                    $ip,
-                    '/ISAPI/AccessControl/UserInfo/Search?format=json',
-                    'POST',
-                    [
-                        'UserInfoSearchCond' => [
-                            'searchID' => 'bulk',
-                            'searchResultPosition' => 0,
-                            'maxResults' => 1,
-                            'EmployeeNoList' => [
-                                ['employeeNo' => $employeeNo]
-                            ]
-                        ]
-                    ]
-                );
-
-                $results[$ip] = [
-                    'success' => true,
-                    'response' => $res
-                ];
-            } catch (\Throwable $e) {
-                $results[$ip] = [
-                    'success' => false
-                ];
-            }
-        }
-
-        Cache::put($cacheKey, $results, now()->addMinutes(10));
-
+    // 🔥 JIKA TIDAK RELOAD → PAKAI CACHE
+    if (!$request->boolean('reload') && Cache::has($cacheKey)) {
         return response()->json([
-            'from_cache' => false,
-            'data' => $results
+            'from_cache' => true,
+            'data' => Cache::get($cacheKey)
         ]);
     }
+
+    // ❌ jika reload → hapus cache lama
+    Cache::forget($cacheKey);
+
+    $employeeNo = '0' . hexdec('11' . $rfid);
+    $results = [];
+
+    foreach ($ips as $ip) {
+        try {
+            $res = $this->hikvisionRequest(
+                $ip,
+                '/ISAPI/AccessControl/UserInfo/Search?format=json',
+                'POST',
+                [
+                    'UserInfoSearchCond' => [
+                        'searchID' => 'bulk',
+                        'searchResultPosition' => 0,
+                        'maxResults' => 1,
+                        'EmployeeNoList' => [
+                            ['employeeNo' => $employeeNo]
+                        ]
+                    ]
+                ]
+            );
+
+            $results[$ip] = [
+                'success' => true,
+                'response' => $res
+            ];
+        } catch (\Throwable $e) {
+            $results[$ip] = [
+                'success' => false
+            ];
+        }
+    }
+
+    Cache::put($cacheKey, $results, now()->addMinutes(10));
+
+    return response()->json([
+        'from_cache' => false,
+        'data' => $results
+    ]);
+}
 
     /* ===============================
      * STATUS DEVICE (SAME PARAM)
