@@ -422,6 +422,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <button class="btn btn-warning btnUploadUlang" data-rfid="${rfid}">
           <i class="ti ti-refresh"></i> Input Ulang ke Device
         </button>
+        <button class="btn btn-info btnReloadData" data-rfid="${rfid}">
+          <i class="ti ti-refresh"></i> Reload Data
+        </button>
       </div>
     `);
 
@@ -740,4 +743,12 @@ function capacityItem(icon, value) {
 document.getElementById('reloadDevice')?.addEventListener('click', () => {
   clearDeviceCache();
   renderStatus(true);
+});
+
+document.getElementById('btnReloadData')?.addEventListener('click', async () => {
+  Swal.fire({ title: 'Reload data...', didOpen: () => Swal.showLoading() });
+
+  await fetch(`/access/available/${currentRfid}?reload=1`);
+
+  Swal.fire('OK', 'Data diperbarui', 'success');
 });
