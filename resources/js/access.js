@@ -300,10 +300,16 @@ const hik = [
   '192.168.20.116'
 ];
 
+const DEVICE_CACHE_KEY = 'device_status_cache';
+const DEVICE_CACHE_TIME_KEY = 'device_capacity_cache_time';
+const DEVICE_CACHE_TTL = 5 * 60 * 1000;
 
 document.addEventListener('DOMContentLoaded', () => {
 
   /* ================= INITIAL ================= */
+  fetch('/access/preload-rfid')
+    .catch(() => {}); // silent
+
   renderStatus();
   setInterval(renderStatus, 5 * 60 * 1000);
 
@@ -350,51 +356,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* ================= CLICK CHECK DATA ================= */
   document.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.checkData');
-    if (!btn) return;
+  const btn = e.target.closest('.checkData');
+  if (!btn) return;
 
-    btn.disabled = true; // 🔁 disable tombol
-    btn.classList.add('disabled');
+  btn.disabled = true;
+  btn.classList.add('disabled');
 
-    const rfid = btn.dataset.rfid;
-    const pas_photo = btn.dataset.photo;
-    console.log({ pas_photo });
-    const container = document.getElementById('contentStatus');
-    const modal = new bootstrap.Modal(document.getElementById('modalCheck'));
+  const rfid = btn.dataset.rfid;
+  const pas_photo = btn.dataset.photo;
+  const container = document.getElementById('contentStatus');
+  const modal = new bootstrap.Modal(document.getElementById('modalCheck'));
 
-    container.innerHTML = '';
+  container.innerHTML = '';
 
-    Swal.fire({
-      title: 'Memuat data...',
-      html: 'Harap tunggu sebentar',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
-    });
+  Swal.fire({
+    title: 'Memuat data...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
 
-    // Foto tampil SEKALI
-    if (pas_photo) {
-      container.innerHTML += `
-        <div class="col-12 mb-4 text-center">
-          <img src="http://perizinanlk3.ssprimadaya.co.id/uploads/foto_pekerja/${pas_photo}"
-               class="img-thumbnail"
-               style="max-height:150px">
-        </div>`;
-    }
+  // FOTO TETAP
+  if (pas_photo) {
+    container.innerHTML += `
+      <div class="col-12 mb-4 text-center">
+        <img src="http://perizinanlk3.ssprimadaya.co.id/uploads/foto_pekerja/${pas_photo}"
+             class="img-thumbnail"
+             style="max-height:150px">
+      </div>`;
+  }
 
-    // Parallel + retry
-    const results = await Promise.allSettled(
-      hik.map(ip => retryCheck(rfid, ip, 2))
-    );
+  try {
+    const res = await fetch(`/access/available/${rfid}`);
+    if (!res.ok) throw new Error('API error');
 
-    results.forEach((res, i) => {
-      const ip = hik[i];
+    const json = await res.json();
+    const data = json.data;
 
-      if (res.status !== 'fulfilled') {
+    Object.entries(data).forEach(([ip, result]) => {
+
+      if (!result.success) {
         container.innerHTML += errorCard(ip);
         return;
       }
 
-      const user = res.value?.UserInfoSearch?.UserInfo?.[0];
+      const user = result.response?.UserInfoSearch?.UserInfo?.[0];
       const endTime = user?.Valid?.endTime;
       const isExpire = endTime ? new Date(endTime) > new Date() : false;
 
@@ -403,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <small class="fw-medium">${ip}</small>
           <div class="demo-inline-spacing mt-3">
             <ul class="list-group">
-              ${li(res.value.UserInfoSearch?.responseStatusStrg === 'OK', 'Available On Device')}
+              ${li(true, 'Available On Device')}
               ${li(isExpire, `Expire At : ${endTime || '-'}`)}
               ${li(user?.numOfFace > 0, 'Has Face Data')}
               ${li(user?.numOfCard > 0, 'Has Card Data')}
@@ -423,9 +428,13 @@ document.addEventListener('DOMContentLoaded', () => {
     Swal.close();
     modal.show();
 
-    btn.disabled = false; // 🔁 enable lagi
+  } catch (err) {
+    Swal.fire('Error', err.message, 'error');
+  } finally {
+    btn.disabled = false;
     btn.classList.remove('disabled');
-  });
+  }
+});
 
 });
 
@@ -595,9 +604,29 @@ function errorCard(ip) {
     </div>`;
 }
 
+function saveDeviceCache(data) {
+  localStorage.setItem(DEVICE_CACHE_KEY, JSON.stringify(data));
+  localStorage.setItem(DEVICE_CACHE_TIME_KEY, Date.now());
+}
+
+function loadDeviceCache() {
+  const time = localStorage.getItem(DEVICE_CACHE_TIME_KEY);
+  const raw = localStorage.getItem(DEVICE_CACHE_KEY);
+
+  if (!time || !raw) return null;
+  if (Date.now() - Number(time) > DEVICE_CACHE_TTL) return null;
+
+  return JSON.parse(raw);
+}
+
+function clearDeviceCache() {
+  localStorage.removeItem(DEVICE_CACHE_KEY);
+  localStorage.removeItem(DEVICE_CACHE_TIME_KEY);
+}
+
 /* ================= DEVICE CAPACITY ================= */
 
-async function renderStatus() {
+async function renderStatus(force = false) {
   Swal.fire({
     title: 'Memuat data...',
     allowOutsideClick: false,
@@ -607,19 +636,40 @@ async function renderStatus() {
   const container = document.getElementById('contentStatusCapacity');
   container.innerHTML = '';
 
-  const fragment = document.createDocumentFragment();
+  // ✅ PAKAI CACHE DULU
+  if (!force) {
+    const cached = loadDeviceCache();
+    if (cached) {
+      renderDeviceCards(cached);
+      Swal.close();
+      return;
+    }
+  }
 
+  // 🔁 FETCH SEKALI
   const results = await Promise.allSettled(
     hik.map(ip => fetchDeviceStatus(ip))
   );
 
-  results.forEach((res, i) => {
-    const ip = hik[i];
+  const data = hik.map((ip, i) => ({
+    ip,
+    result: results[i]
+  }));
 
+  saveDeviceCache(data);
+  renderDeviceCards(data);
+  Swal.close();
+}
+
+function renderDeviceCards(data) {
+  const container = document.getElementById('contentStatusCapacity');
+  const fragment = document.createDocumentFragment();
+
+  data.forEach(({ ip, result }) => {
     const col = document.createElement('div');
     col.className = 'col-md-6 col-xxl-4 mb-4';
 
-    if (res.status !== 'fulfilled') {
+    if (result.status !== 'fulfilled') {
       col.innerHTML = `
         <div class="card h-100 border-danger">
           <div class="card-body text-danger">
@@ -627,7 +677,7 @@ async function renderStatus() {
           </div>
         </div>`;
     } else {
-      const d = res.value;
+      const d = result.value;
       col.innerHTML = `
         <div class="card h-100">
           <div class="card-header">
@@ -642,11 +692,11 @@ async function renderStatus() {
           </div>
         </div>`;
     }
+
     fragment.appendChild(col);
   });
 
   container.appendChild(fragment);
-  Swal.close();
 }
 
 function fetchDeviceStatus(ip) {
@@ -686,3 +736,8 @@ function capacityItem(icon, value) {
       </div>
     </li>`;
 }
+
+document.getElementById('reloadDevice')?.addEventListener('click', () => {
+  clearDeviceCache();
+  renderStatus(true);
+});
