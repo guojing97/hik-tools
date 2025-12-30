@@ -1,0 +1,37 @@
+{
+  "menu": [
+    {
+      "url": "/",
+      "name": "Home",
+      "icon": "menu-icon icon-base ti tabler-smart-home",
+      "slug": "pages-home"
+    },
+    {
+      "url": "/monitoring",
+      "icon": "menu-icon icon-base ti tabler-activity-heartbeat",
+      "name": "Monitoring",
+      "slug": "monitoring-index"
+    },
+    {
+      "url": "/access",
+      "name": "Access",
+      "icon": "menu-icon icon-base ti tabler-alert-triangle",
+      "slug": "access-index",
+      "target": "_blank"
+    },
+    {
+      "url": "/auth/login-basic",
+      "name": "Login",
+      "icon": "menu-icon icon-base ti tabler-login",
+      "slug": "auth-login-basic",
+      "target": "_blank"
+    },
+    {
+      "url": "/auth/register-basic",
+      "name": "Register",
+      "icon": "menu-icon icon-base ti tabler-user",
+      "slug": "auth-register-basic",
+      "target": "_blank"
+    }
+  ]
+}
