@@ -24,7 +24,13 @@ $configData = Helper::appClasses();
 
 
 @section('content')
-<h4>Access</h4>
+<!-- <h4>Access</h4> -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold py-3 mb-4"><span class="text-muted fw-light">Access /</span> Data Access</h4>
+  <button id="reloadAll" class="btn btn-warning">
+    🔄 Load Data
+  </button>
+</div>
 
 <p class="mb-6">
   A role provided access to predefined menus and features so that depending on <br />

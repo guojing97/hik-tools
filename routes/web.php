@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\language\LanguageController;
 use App\Http\Controllers\pages\HomePage;
 use App\Http\Controllers\pages\Page2;
@@ -19,6 +20,15 @@ Route::get('/pages/misc-error', [MiscError::class, 'index'])->name('pages-misc-e
 // authentication
 Route::get('/auth/login-basic', [LoginBasic::class, 'index'])->name('auth-login-basic');
 Route::get('/auth/register-basic', [RegisterBasic::class, 'index'])->name('auth-register-basic');
+
+// api
+Route::get('/access/upload-ulang/{rfid}', [App\Http\Controllers\AccessController::class, 'uploadUlang']);
+
+//chace
+Route::post('/access/clear-cache', function () {
+  Cache::flush();
+  return response()->json(['status' => 'ok']);
+});
 
 Route::group(['prefix' => 'access'], function () {
   Route::get('/', [App\Http\Controllers\AccessController::class, 'index'])->name('access-index');
