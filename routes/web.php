@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\language\LanguageController;
 use App\Http\Controllers\pages\HomePage;
 use App\Http\Controllers\pages\Page2;
@@ -20,9 +21,22 @@ Route::get('/pages/misc-error', [MiscError::class, 'index'])->name('pages-misc-e
 Route::get('/auth/login-basic', [LoginBasic::class, 'index'])->name('auth-login-basic');
 Route::get('/auth/register-basic', [RegisterBasic::class, 'index'])->name('auth-register-basic');
 
+// api
+Route::get('/access/upload-ulang/{rfid}', [App\Http\Controllers\AccessController::class, 'uploadUlang']);
+Route::post('/access/prefetch', [App\Http\Controllers\AccessController::class, 'prefetchAvailable']);
+Route::get('/access/preload-rfid', [App\Http\Controllers\AccessController::class, 'preloadRfids']);
+
+//chace
+Route::post('/access/clear-cache', function () {
+  Cache::flush();
+  return response()->json(['status' => 'ok']);
+});
+
 Route::group(['prefix' => 'access'], function () {
   Route::get('/', [App\Http\Controllers\AccessController::class, 'index'])->name('access-index');
   Route::get('/table', [App\Http\Controllers\AccessController::class, 'table'])->name('access-table');
+  Route::get('/available/{rfid}', [App\Http\Controllers\AccessController::class, 'checkAvailableAll'])
+    ->name('access-available-all');
   Route::post('/available', [App\Http\Controllers\AccessController::class, 'checkAvailable'])->name('access-available');
   Route::post('/device', [App\Http\Controllers\AccessController::class, 'getStatusDevice'])->name('access-device');
 });

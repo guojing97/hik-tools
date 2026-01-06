@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,294 +13,469 @@ use Yajra\DataTables\DataTables;
 
 class AccessController extends Controller
 {
+    private string $hikUser = 'admin';
+    private string $hikPass = 'Hik12345';
+    private int $timeout = 3;
+
+    /* ===============================
+     * VIEW
+     * =============================== */
     public function index()
     {
         return view('content.access.index');
     }
 
+    /* ===============================
+     * DATATABLE
+     * =============================== */
+    // public function table(Request $request)
+    // {
+    //     try {
+    //         $query = DB::table('access')->select(
+    //             'user',
+    //             'nama_pekerja',
+    //             'nama_perusahaan',
+    //             'expire',
+    //             'number',
+    //             'rfid',
+    //             'gender',
+    //             'pas_photo',
+    //             'is_active'
+    //         );
+
+    //         if ($request->boolean('is_expire')) {
+    //             $query->where('expire', '<', now());
+    //         }
+
+    //         return DataTables::of($query)
+    //             ->addIndexColumn()
+    //             ->make(true);
+
+    //     } catch (\Throwable $th) {
+    //         Log::error('Access table error', [
+    //             'msg' => $th->getMessage(),
+    //             'line' => $th->getLine(),
+    //         ]);
+
+    //         return response()->json([
+    //             "message" => "Oops! Something went wrong.",
+    //             "status"  => false,
+    //         ], Response::HTTP_INTERNAL_SERVER_ERROR);
+    //     }
+    // }
+
     public function table(Request $request)
     {
         try {
-            $isExpire = $request->is_expire ?? false;
-            $data = DB::table('access')->select(
-                'user',
-                'nama_pekerja',
-                'nama_perusahaan',
-                'expire',
-                'number',
-                'rfid',
-                'gender',
-                'is_active'
-            );
 
-            if ($isExpire) {
-                $data = $data->where('expire', '<', now());
-            }
+            // 🔑 cache key berdasarkan parameter DataTables
+            $cacheKey = 'access_table:' . md5(json_encode($request->all()));
 
-            $data = $data->get();
-            return DataTables::of($data)
-                ->addIndexColumn()
-                ->make(true);
+            return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($request) {
+
+                $query = DB::table('access')->select(
+                    'user',
+                    'nama_pekerja',
+                    'nama_perusahaan',
+                    'expire',
+                    'number',
+                    'rfid',
+                    'gender',
+                    'pas_photo',
+                    'is_active'
+                );
+
+                if ($request->boolean('is_expire')) {
+                    $query->where('expire', '<', now());
+                }
+
+                return DataTables::of($query)
+                    ->addIndexColumn()
+                    ->make(true);
+            });
         } catch (\Throwable $th) {
-            Log::error($th->getMessage() . " " . $th->getFile() . " " . $th->getLine());
+
+            Log::error('Access table error', [
+                'msg'  => $th->getMessage(),
+                'line' => $th->getLine()
+            ]);
+
             return response()->json([
-                "message" => "Oops! Something went wrong.",
-                "status"  => false,
-            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+                'status'  => false,
+                'message' => 'Oops! Something went wrong'
+            ], 500);
         }
     }
 
+    public function preloadRfids()
+    {
+        $rfids = DB::table('access')
+            ->whereNotNull('rfid')
+            ->pluck('rfid')
+            ->unique()
+            ->values();
+
+        Cache::put(
+            'access:rfid:list',
+            $rfids,
+            now()->addHours(4)
+        );
+
+        return response()->json([
+            'status' => true,
+            'total' => $rfids->count(),
+            'message' => 'RFID cached'
+        ]);
+    }
+
+    /* ===============================
+     * CHECK AVAILABLE (SAME PARAM)
+     * =============================== */
+    // public function checkAvailable(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'ip_destination' => 'required',
+    //         'rfid'           => 'required',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'message' => 'Validation failed',
+    //             'errors'  => $validator->errors(),
+    //         ], Response::HTTP_UNPROCESSABLE_ENTITY);
+    //     }
+
+    //     try {
+    //         $employeeNo = '0' . hexdec('11' . $request->rfid);
+
+    //         return $this->hikvisionRequest(
+    //             $request->ip_destination,
+    //             '/ISAPI/AccessControl/UserInfo/Search?format=json',
+    //             'POST',
+    //             [
+    //                 'UserInfoSearchCond' => [
+    //                     'searchID' => 'developer',
+    //                     'searchResultPosition' => 0,
+    //                     'maxResults' => 10,
+    //                     'EmployeeNoList' => [
+    //                         ['employeeNo' => $employeeNo]
+    //                     ]
+    //                 ]
+    //             ]
+    //         );
+    //     } catch (\Throwable $th) {
+    //         Log::error('checkAvailable failed', [
+    //             'ip' => $request->ip_destination,
+    //             'msg' => $th->getMessage()
+    //         ]);
+
+    //         return response()->json([
+    //             'message' => 'Failed to connect to the device.'
+    //         ], Response::HTTP_INTERNAL_SERVER_ERROR);
+    //     }
+    // }
+
     public function checkAvailable(Request $request)
     {
-        try {
-            $validatedData = Validator::make($request->all(), [
-                'ip_destination'  => 'required',
-                'rfid'            => 'required',
-            ]);
+        $request->validate([
+            'rfid' => 'required',
+            'ip_destination' => 'required',
+        ]);
 
-            if ($validatedData->fails()) {
-                return response()->json([
-                    'message' => 'Validation failed',
-                    'errors'  => $validatedData->errors(),
-                ], Response::HTTP_UNPROCESSABLE_ENTITY);
-            }
+        $rfid = $request->rfid;
+        $ip   = $request->ip_destination;
 
-            $hexaToDecimal = hexdec((int)'11' . $request->rfid);
+        $cacheKey = "hik:available:$rfid:$ip";
 
-            $response = Http::withDigestAuth('admin', 'Hik12345')->withHeaders([
-                'Content-Type' => 'application/json',
-            ])->post(
-                $request->ip_destination . '/ISAPI/AccessControl/UserInfo/Search?format=json',
+        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($rfid, $ip) {
+
+            $employeeNo = '0' . hexdec('11' . $rfid);
+
+            return $this->hikvisionRequest(
+                $ip,
+                '/ISAPI/AccessControl/UserInfo/Search?format=json',
+                'POST',
                 [
                     'UserInfoSearchCond' => [
                         'searchID' => 'developer',
                         'searchResultPosition' => 0,
                         'maxResults' => 10,
                         'EmployeeNoList' => [
-                            [
-                                'employeeNo' => '0' . $hexaToDecimal
-                            ]
+                            ['employeeNo' => $employeeNo]
+                        ]
+                    ]
+                ]
+            );
+        });
+    }
+
+    public function checkAvailableAll(Request $request, string $rfid)
+{
+    $ips = [
+        '192.168.20.102',
+        '192.168.20.104',
+        '192.168.20.106',
+        '192.168.20.108',
+        '192.168.20.118',
+        '192.168.20.110',
+        '192.168.20.112',
+        '192.168.20.114',
+        '192.168.20.116',
+    ];
+
+    $cacheKey = "hik:available:all:$rfid";
+
+    // 🔥 JIKA TIDAK RELOAD → PAKAI CACHE
+    if (!$request->boolean('reload') && Cache::has($cacheKey)) {
+        return response()->json([
+            'from_cache' => true,
+            'data' => Cache::get($cacheKey)
+        ]);
+    }
+
+    // ❌ jika reload → hapus cache lama
+    Cache::forget($cacheKey);
+
+    $employeeNo = '0' . hexdec('11' . $rfid);
+    $results = [];
+
+    foreach ($ips as $ip) {
+        try {
+            $res = $this->hikvisionRequest(
+                $ip,
+                '/ISAPI/AccessControl/UserInfo/Search?format=json',
+                'POST',
+                [
+                    'UserInfoSearchCond' => [
+                        'searchID' => 'bulk',
+                        'searchResultPosition' => 0,
+                        'maxResults' => 1,
+                        'EmployeeNoList' => [
+                            ['employeeNo' => $employeeNo]
                         ]
                     ]
                 ]
             );
 
-            if ($response->failed()) {
-                return response()->json([
-                    'message' => 'Failed to connect to the device.',
-                    'error'   => $response->body()
-                ], Response::HTTP_INTERNAL_SERVER_ERROR);
-            }
-
-            return $response->json();
-        } catch (\Throwable $th) {
-            Log::error($th->getMessage() . " " . $th->getFile() . " " . $th->getLine());
-            return response()->json([
-                "message" => "Oops! Something went wrong.",
-                "status"  => false,
-            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+            $results[$ip] = [
+                'success' => true,
+                'response' => $res
+            ];
+        } catch (\Throwable $e) {
+            $results[$ip] = [
+                'success' => false
+            ];
         }
     }
 
+    Cache::put($cacheKey, $results, now()->addMinutes(10));
+
+    return response()->json([
+        'from_cache' => false,
+        'data' => $results
+    ]);
+}
+
+    /* ===============================
+     * STATUS DEVICE (SAME PARAM)
+     * =============================== */
+    // public function getStatusDevice(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'ip_destination' => 'required',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'message' => 'Validation failed',
+    //             'errors'  => $validator->errors(),
+    //         ], Response::HTTP_UNPROCESSABLE_ENTITY);
+    //     }
+
+    //     try {
+    //         $ip = $request->ip_destination;
+
+    //         return response()->json([
+    //             'capacity_card' => $this->getCapacityCard($ip),
+    //             'capacity_user' => $this->getCapacityUser($ip),
+    //             'capacity_face' => $this->getCapacityFDLib($ip),
+    //         ], Response::HTTP_OK);
+
+    //     } catch (\Throwable $th) {
+    //         Log::error('getStatusDevice failed', [
+    //             'ip' => $request->ip_destination,
+    //             'msg' => $th->getMessage()
+    //         ]);
+
+    //         return response()->json([
+    //             "message" => "Oops! Something went wrong.",
+    //             "status"  => false,
+    //         ], Response::HTTP_INTERNAL_SERVER_ERROR);
+    //     }
+    // }
+
+    // fahmi
     public function getStatusDevice(Request $request)
     {
-        try {
-            $validatedData = Validator::make($request->all(), [
-                'ip_destination'  => 'required',
-            ]);
+        $request->validate([
+            'ip_destination' => 'required'
+        ]);
 
-            if ($validatedData->fails()) {
-                return response()->json([
-                    'message' => 'Validation failed',
-                    'errors'  => $validatedData->errors(),
-                ], Response::HTTP_UNPROCESSABLE_ENTITY);
-            }
+        $ip = $request->ip_destination;
+        $cacheKey = "hik:device:$ip";
 
-            $capacityCard = $this->getCapacityCard($request->ip_destination);
-            $capacityUser = $this->getCapacityUser($request->ip_destination);
-            $capacityFace = $this->getCapacityFDLib($request->ip_destination);
-
-            return response()->json([
-                'capacity_card' => $capacityCard,
-                'capacity_user' => $capacityUser,
-                'capacity_face' => $capacityFace,
-            ], Response::HTTP_OK);
-        } catch (\Throwable $th) {
-            Log::error($th->getMessage() . " " . $th->getFile() . " " . $th->getLine());
-            return response()->json([
-                "message" => "Oops! Something went wrong.",
-                "status"  => false,
-            ], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($ip) {
+            return [
+                'capacity_card' => $this->getCapacityCard($ip),
+                'capacity_user' => $this->getCapacityUser($ip),
+                'capacity_face' => $this->getCapacityFDLib($ip),
+            ];
+        });
     }
 
+    /* ===============================
+     * CAPACITY CARD (SAME FUNC)
+     * =============================== */
     private function getCapacityCard($ip)
     {
-        try {
-            $response = Http::withDigestAuth('admin', 'Hik12345')
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                ])
-                ->timeout(5)
-                ->get($ip . '/ISAPI/AccessControl/CardInfo/Count?format=json');
-
-            // HTTP status bukan 2xx
-            if ($response->failed()) {
-                Log::error('Hikvision API failed', [
-                    'ip'     => $ip,
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-
-                throw new \RuntimeException('Hikvision device returned an error response');
-            }
-
-            // Pastikan response JSON valid
-            $data = $response->json();
-
-            if (!is_array($data)) {
-                Log::error('Invalid JSON response from Hikvision', [
-                    'ip'   => $ip,
-                    'body' => $response->body(),
-                ]);
-
-                throw new \UnexpectedValueException('Invalid JSON response from device');
-            }
-
-            // Ambil cardNumber dengan aman
-            $cardNumber = data_get($data, 'CardInfoCount.cardNumber');
-
-            if (!is_numeric($cardNumber)) {
-                Log::error('cardNumber not found in Hikvision response', [
-                    'ip'   => $ip,
-                    'data' => $data,
-                ]);
-
-                throw new \UnexpectedValueException('cardNumber not found in device response');
-            }
-
-            return (int) $cardNumber;
-        } catch (\Throwable $e) {
-            Log::error('Failed to get card capacity from Hikvision', [
-                'ip'      => $ip,
-                'message' => $e->getMessage(),
-            ]);
-
-            // fallback aman agar aplikasi tidak crash
-            return 0;
-        }
+        return $this->getCapacity(
+            $ip,
+            '/ISAPI/AccessControl/CardInfo/Count?format=json',
+            'CardInfoCount.cardNumber'
+        );
     }
 
+    /* ===============================
+     * CAPACITY USER (SAME FUNC)
+     * =============================== */
     private function getCapacityUser($ip)
     {
+        return $this->getCapacity(
+            $ip,
+            '/ISAPI/AccessControl/UserInfo/Count?format=json',
+            'UserInfoCount.userNumber'
+        );
+    }
+
+    /* ===============================
+     * CAPACITY FACE (SAME FUNC)
+     * =============================== */
+    private function getCapacityFDLib($ip)
+    {
+        return $this->getCapacity(
+            $ip,
+            '/ISAPI/Intelligent/FDLib/Count?format=json',
+            'FDRecordDataInfo.0.recordDataNumber'
+        );
+    }
+
+    /* ===============================
+     * GENERIC CAPACITY HANDLER
+     * =============================== */
+    private function getCapacity(string $ip, string $endpoint, string $jsonPath): int
+    {
         try {
-            $response = Http::withDigestAuth('admin', 'Hik12345')
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                ])
-                ->timeout(5)
-                ->get($ip . '/ISAPI/AccessControl/UserInfo/Count?format=json');
+            $response = $this->hikvisionRequest($ip, $endpoint);
 
-            // HTTP status bukan 2xx
-            if ($response->failed()) {
-                Log::error('Hikvision API failed', [
-                    'ip'     => $ip,
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-
-                throw new \RuntimeException('Hikvision device returned an error response');
-            }
-
-            // Pastikan response JSON valid
-            $data = $response->json();
-
-            if (!is_array($data)) {
-                Log::error('Invalid JSON response from Hikvision', [
-                    'ip'   => $ip,
-                    'body' => $response->body(),
-                ]);
-
-                throw new \UnexpectedValueException('Invalid JSON response from device');
-            }
-
-            // Ambil cardNumber dengan aman
-            $cardNumber = data_get($data, 'UserInfoCount.userNumber');
-
-            if (!is_numeric($cardNumber)) {
-                Log::error('cardNumber not found in Hikvision response', [
-                    'ip'   => $ip,
-                    'data' => $data,
-                ]);
-
-                throw new \UnexpectedValueException('cardNumber not found in device response');
-            }
-
-            return (int) $cardNumber;
-        } catch (\Throwable $e) {
-            Log::error('Failed to get card capacity from Hikvision', [
-                'ip'      => $ip,
-                'message' => $e->getMessage(),
+            return (int) data_get($response, $jsonPath, 0);
+        } catch (\Throwable $th) {
+            Log::warning('Capacity fetch failed', [
+                'ip' => $ip,
+                'endpoint' => $endpoint,
+                'msg' => $th->getMessage()
             ]);
-
-            // fallback aman agar aplikasi tidak crash
             return 0;
         }
     }
 
-    private function getCapacityFDLib($ip)
+    /* ===============================
+     * HIKVISION HTTP HELPER (CORE)
+     * =============================== */
+    private function hikvisionRequest(
+        string $ip,
+        string $endpoint,
+        string $method = 'GET',
+        array $payload = []
+    ): array {
+        $http = Http::withDigestAuth($this->hikUser, $this->hikPass)
+            ->timeout($this->timeout)
+            ->retry(1, 200)
+            ->acceptJson();
+
+        $response = $method === 'POST'
+            ? $http->post($ip . $endpoint, $payload)
+            : $http->get($ip . $endpoint);
+
+        if ($response->failed()) {
+            throw new \RuntimeException(
+                "Hikvision API error {$response->status()}"
+            );
+        }
+
+        return $response->json();
+    }
+
+    public function uploadUlang($rfid)
     {
         try {
-            $response = Http::withDigestAuth('admin', 'Hik12345')
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                ])
-                ->timeout(5)
-                ->get($ip . '/ISAPI/Intelligent/FDLib/Count?format=json');
+            $response = Http::timeout(60)->get(
+                "http://192.168.0.3/dev/hik/uploadUserGF_byRfid_lebih_dari_satu",
+                ['rfid' => $rfid]
+            );
 
-            // HTTP status bukan 2xx
-            if ($response->failed()) {
-                Log::error('Hikvision API failed', [
-                    'ip'     => $ip,
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-
-                throw new \RuntimeException('Hikvision device returned an error response');
-            }
-
-            // Pastikan response JSON valid
-            $data = $response->json();
-
-            if (!is_array($data)) {
-                Log::error('Invalid JSON response from Hikvision', [
-                    'ip'   => $ip,
-                    'body' => $response->body(),
-                ]);
-
-                throw new \UnexpectedValueException('Invalid JSON response from device');
-            }
-
-            $cardNumber = data_get($data, 'FDRecordDataInfo.0.recordDataNumber');
-
-            if (!is_numeric($cardNumber)) {
-                Log::error('cardNumber not found in Hikvision response', [
-                    'ip'   => $ip,
-                    'data' => $data,
-                ]);
-
-                throw new \UnexpectedValueException('cardNumber not found in device response');
-            }
-
-            return (int) $cardNumber;
+            return response()->json($response->json());
         } catch (\Throwable $e) {
-            Log::error('Failed to get card capacity from Hikvision', [
-                'ip'      => $ip,
-                'message' => $e->getMessage(),
-            ]);
-
-            // fallback aman agar aplikasi tidak crash
-            return 0;
+            return response()->json([
+                'message' => 'Gagal upload ulang',
+                'error'   => $e->getMessage()
+            ], 500);
         }
+    }
+
+    public function prefetchAvailable(Request $request)
+    {
+        $request->validate([
+            'rfid' => 'required'
+        ]);
+
+        $ips = [
+            '192.168.20.102',
+            '192.168.20.104',
+            '192.168.20.106',
+            '192.168.20.108',
+            '192.168.20.118',
+            '192.168.20.110',
+            '192.168.20.112',
+            '192.168.20.114',
+            '192.168.20.116',
+        ];
+
+        foreach ($ips as $ip) {
+            Cache::remember(
+                "hik:available:{$request->rfid}:$ip",
+                now()->addMinutes(10),
+                function () use ($request, $ip) {
+                    $employeeNo = '0' . hexdec('11' . $request->rfid);
+
+                    return $this->hikvisionRequest(
+                        $ip,
+                        '/ISAPI/AccessControl/UserInfo/Search?format=json',
+                        'POST',
+                        [
+                            'UserInfoSearchCond' => [
+                                'searchID' => 'prefetch',
+                                'searchResultPosition' => 0,
+                                'maxResults' => 10,
+                                'EmployeeNoList' => [
+                                    ['employeeNo' => $employeeNo]
+                                ]
+                            ]
+                        ]
+                    );
+                }
+            );
+        }
+
+        return response()->json(['status' => 'prefetch_done']);
     }
 }
