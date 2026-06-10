@@ -21,7 +21,7 @@ class AccessController extends Controller
     {
         try {
             $isExpire = $request->is_expire ?? false;
-            $data = DB::table('access')->select(
+            $data = DB::table('integrasi_iacs.access')->select(
                 'user',
                 'nama_pekerja',
                 'nama_perusahaan',
@@ -32,8 +32,10 @@ class AccessController extends Controller
                 'is_active'
             );
 
-            if ($isExpire) {
+            if ($isExpire === true) {
                 $data = $data->where('expire', '<', now());
+            } else if ($isExpire === false) {
+                $data = $data->where('expire', '>=', now());
             }
 
             $data = $data->get();

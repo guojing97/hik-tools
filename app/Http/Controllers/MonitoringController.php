@@ -18,7 +18,7 @@ class MonitoringController extends Controller
     public function table()
     {
         try {
-            $query = DB::table('history as h')
+            $query = DB::table('integrasi_iacs.history as h')
                 ->select(
                     'h.id',
                     'h.timestamp',
@@ -29,8 +29,8 @@ class MonitoringController extends Controller
                     'a.nama_pekerja as name',
                     'a.number'
                 )
-                ->leftJoin('access as a', 'h.access', '=', 'a.id')
-                ->leftJoin('doors as d', 'h.door', '=', 'd.id')
+                ->leftJoin('integrasi_iacs.access as a', 'h.access', '=', 'a.id')
+                ->leftJoin('integrasi_iacs.doors as d', 'h.door', '=', 'd.id')
                 ->orderBy('h.timestamp', 'desc');
 
             return DataTables::of($query)
@@ -64,7 +64,7 @@ class MonitoringController extends Controller
                 }
 
                 try {
-                    $rows = DB::table('history as h')
+                    $rows = DB::table('integrasi_iacs.history as h')
                         ->select(
                             'h.id',
                             'h.timestamp',
@@ -75,8 +75,8 @@ class MonitoringController extends Controller
                             'a.nama_pekerja as name',
                             'a.number'
                         )
-                        ->leftJoin('access as a', 'h.access', '=', 'a.id')
-                        ->leftJoin('doors as d', 'h.door', '=', 'd.id')
+                        ->leftJoin('integrasi_iacs.access as a', 'h.access', '=', 'a.id')
+                        ->leftJoin('integrasi_iacs.doors as d', 'h.door', '=', 'd.id')
                         ->where('h.id', '>', $lastId)
                         ->orderBy('h.id', 'asc')
                         ->limit(10)
