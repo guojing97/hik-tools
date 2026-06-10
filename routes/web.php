@@ -22,7 +22,7 @@ Route::get('/auth/register-basic', [RegisterBasic::class, 'index'])->name('auth-
 
 Route::group(['prefix' => 'access'], function () {
   Route::get('/', [App\Http\Controllers\AccessController::class, 'index'])->name('access-index');
-  Route::get('/table', [App\Http\Controllers\AccessController::class, 'table'])->name('access-table');
+  Route::post('/table', [App\Http\Controllers\AccessController::class, 'table'])->name('access-table');
   Route::post('/available', [App\Http\Controllers\AccessController::class, 'checkAvailable'])->name('access-available');
   Route::post('/device', [App\Http\Controllers\AccessController::class, 'getStatusDevice'])->name('access-device');
 });
