@@ -55,7 +55,7 @@ class MonitoringController extends Controller
         return response()->stream(function () {
 
             // ambil ID terakhir saat koneksi dibuka
-            $lastId = DB::table('history')->max('id') ?? 0;
+            $lastId = DB::table('integrasi_iacs.history')->max('id') ?? 0;
 
             while (true) {
 
