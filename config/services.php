@@ -34,5 +34,9 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-
+    'hikvision' => [
+        'username' => env('HIKVISION_USER'),
+        'password' => env('HIKVISION_PASS'),
+        'devices'  => env('HIKVISION_DEVICES'),
+    ],
 ];
